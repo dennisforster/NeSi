@@ -1,0 +1,13 @@
+# git ignore file
+
+# Ignore all files with the extension *.pyc
+*.pyc
+
+# Ignore all files with the extension *.txt
+*.txt
+
+# Ignore all files with the extension *.log
+*.log
+
+# Ignore all files ending with ~
+*.*~
