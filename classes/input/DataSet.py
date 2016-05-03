@@ -267,9 +267,8 @@ class DataSet:
         """
         Create h5 file for the given dataset
         """
-        pprint('\nCreating %s' % dataset +
-               ' h5 data set using fast, lossless compression (lzf)...',
-               end='')
+        pprint('\nCreating %s'%dataset + ' h5 data set using fast, lossless ' +
+               'compression (lzf)...' , end='')
         # read train and test data from original dataset
         nparray_2D_train, label_train, label_names = \
             self._read_set_from(dataset, 'train', path)
@@ -594,62 +593,12 @@ class DataSet:
 
 
     def _read_set_from(self, dsetname, dset, path, classes=None):
-        # TODO: label names for all data sets
-        # TODO: delete classes selection, since this will only be used for
-        # storing the complete set as h5 file. Also rearrange function/name to
-        # make this clear.
         label_names = None
+
         # MNIST
         if (dsetname == 'MNIST'):
             import classes.input.mnist as mnist
             nparray_2D, label, label_names = mnist.read_images_from_mnist(
-                dset, path, classes)
-        elif (dsetname == 'MNIST540k'):
-            # add MNIST data points translated by one pixel up, down,
-            # left, right and along the diagonals
-            import classes.input.mnist as mnist
-            nparray_2D, label, label_names = mnist.read_images_from_mnist(
-                dset, path, classes)
-            if(dset == 'train'):
-                nparray_2D, label = mnist.add_translated_images(
-                    nparray_2D, label)
-        elif (dsetname == 'MNIST+r180k'):
-            # add MNIST data points rotated by a given list of angles
-            angles = [-10,+10]
-            import classes.input.mnist as mnist
-            nparray_2D, label, label_names = mnist.read_images_from_mnist(
-                dset, path, classes)
-            if(dset == 'train'):
-                nparray_2D, label = mnist.add_rotated_images(
-                    nparray_2D, label, angels)
-            # print nparray_2D.shape
-        # CIFAR-10
-        elif (dsetname == 'CIFAR-10'):
-            import classes.input.cifar as cifar
-            nparray_2D, label = cifar.read_images_from_cifar(dset, path, classes)
-        # SVHN
-        elif (dsetname == 'SVHN'):
-            import classes.input.svhn as svhn
-            nparray_2D, label = svhn.read_images_from_svhn(dset, path, classes)
-        # artificial shapes
-        elif (dsetname == 'artificial'):
-            import classes.input.artificial as artificial
-            nparray_2D, label = artificial.generate_artificial_data(
-                dset, path, classes)
-        # squares (artificial data from KeckEtAl2012)
-        elif (dsetname == 'squares'):
-            import classes.input.squares as squares
-            nparray_2D, label = squares.read_images_from_squares(
-                dset, path, classes)
-        # IRIS
-        elif (dsetname == 'IRIS'):
-            import classes.input.iris as iris
-            nparray_2D, label, label_names = iris.read_data_from_iris(
-                dset, path, classes)
-        # CalTechS (CalTech Silhouettes)
-        elif (dsetname == 'CalTechS'):
-            import classes.input.caltechs as caltechs
-            nparray_2D, label, label_names = caltechs.read_data_from_caltechs(
                 dset, path, classes)
         # 20 Newsgroups
         elif (dsetname == '20Newsgroups-tf-idf'):
@@ -658,5 +607,6 @@ class DataSet:
                 dset, path, classes)
         return nparray_2D, label, label_names
 
+     
     def _get_label_names(self, labels):
         return [self._labelnames[i] for i in labels]

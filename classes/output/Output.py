@@ -46,23 +46,25 @@ class Output(object):
         """
 
         #--- Path Name ---
-        try:
-            if config['output']['DATEPREFIX_PATH']:
-                self._txtfoldername = str(datetime.date.today()) + ' - '
-        except:
-            self._txtfoldername = ''
-
-        try:
+        if 'foldername' in config['config']:
             if (config['config']['foldername'] is None):
-                self._txtfoldername = \
-                    self._txtfoldername + config['config']['Model']
+                self._txtfoldername = config['config']['Model']
             else:
-                self._txtfoldername = \
-                    self._txtfoldername + config['config']['foldername']
-        except:
-            self._txtfoldername = \
-                self._txtfoldername + config['config']['Model']
+                self._txtfoldername = config['config']['foldername']
+        else:
+            self._txtfoldername = config['config']['Model']
 
+        if 'DATEPREFIX_PATH' in config['output']:
+            if config['output']['DATEPREFIX_PATH']:
+                leaf = self._txtfoldername.rfind('/')
+                if leaf != -1:
+                    path = self._txtfoldername[:leaf+1]
+                    dirname = self._txtfoldername[leaf+1:]
+                else:
+                    path = ''
+                    dirname = self._txtfoldername
+                self._txtfoldername = path + str(datetime.date.today()) + \
+                    ' - ' + dirname
 
         #--- File Name ---
         try:
@@ -362,17 +364,30 @@ class Output(object):
         """
         Save the current weights in h5 file.
         """
+        # TODO: include ONLINE/EVERY_N_INTERATIONS
         if (self._SAVE_WEIGHTS and (MPI.COMM_WORLD.Get_rank() == 0)):
             for nlayer in xrange(1, multilayer.number_of_layers()):
-                filename = './output/%s/h5/%s' % (
-                    self._txtfoldername,
-                    'Run%d%sL%d.h5' % (
-                        multilayer.run(),
-                        multilayer.name(),
-                        nlayer))
-                h5file = h5py.File(filename)
-                h5file['W'] = multilayer.Layer[nlayer].get_weights()
-                h5file.close()
+                if multilayer.get_iteration() == multilayer.get_iterations():
+                    filename = './output/%s/h5/%s' % (
+                        self._txtfoldername,
+                        'Run%d%sL%d.h5' % (
+                            multilayer.run(),
+                            multilayer.name(),
+                            nlayer))
+                else:
+                    filename = './output/%s/h5/%s' % (
+                        self._txtfoldername,
+                        'Run%d%sL%dI%d.h5' % (
+                            multilayer.run(),
+                            multilayer.name(),
+                            nlayer,
+                            multilayer.get_iteration()))
+                try:
+                    h5file = h5py.File(filename)
+                    h5file['W'] = multilayer.Layer[nlayer].get_weights()
+                    h5file.close()
+                except:
+                    pass
 
     def save_data_index(self, nrun, dataset, mode=''):
         """
@@ -389,6 +404,29 @@ class Output(object):
             if ((mode == 'test') or (mode == '')):
                 h5file['test'] = dataset._indexlist['test']
             h5file.close()
+
+    def save_posterior(self, model, config, dataset):
+        # get unshuffeled train data
+        h5file = h5py.File(dataset._h5path, 'r')
+        train_data = np.asarray(h5file['train/data'], dtype='float32')
+        train_index = np.sort(np.append(
+            dataset._indexlist['train_labeled'],
+            dataset._indexlist['train_unlabeled']))
+        train_data = train_data[train_index]
+        _, posterior = model.test(
+            train_data,
+            np.ones(train_data.shape[0])*(-1))
+        # get posterior
+        posterior = posterior[0]
+        filename = './output/%s/h5/%s' % (
+            self._txtfoldername,
+            'Run%dI%d.h5' % (
+                model.MultiLayer[-1].run(),
+                model.MultiLayer[-1].get_iteration()))
+        # save results
+        h5file = h5py.File(filename)
+        h5file['train/posterior'] = posterior
+        h5file.close()
 
     def visualize_weights(self, model, nmultilayer, nlayer, config):
         """
@@ -485,7 +523,7 @@ class Output(object):
 
             self._setting.write()
 
-    def write_results(self, classification, loglikelihood, config, run):
+    def write_results(self, classification, loglikelihood, config, run, *args):
         """
         Write the given results into file.
         """
@@ -500,9 +538,11 @@ class Output(object):
                 self._results_file.write('\t')
             self._results_file.write('%f' % (classification))
             if self._LIKELIHOOD_OUTPUT:
-                self._results_file.write('\t%f\n' % (loglikelihood))
-            else:
-                self._results_file.write('\n')
+                self._results_file.write('\t%f' % (loglikelihood))
+            if args:
+                self._results_file.write(''.join(['\t%f' % arg for arg in args]))
+            self._results_file.write('\n')
+
             self._results_file.close()
 
     def write_online_results(self, model, config, dataset, loglikelihood=None):
@@ -514,7 +554,7 @@ class Output(object):
             and (model.MultiLayer[-1].get_iteration() % \
                  self._RESULTS_EVERY_N_ITERATIONS == 0)):
             # Calculate Test Error
-            test_error = model.test(dataset.get_test_data(),
+            test_error, _ = model.test(dataset.get_test_data(),
                                     dataset.get_test_label())
             MPI.COMM_WORLD.Barrier()
             # Calculate LogLikelihood
@@ -555,8 +595,13 @@ class Output(object):
                     self._txtfoldername,
                     self._txtfilename + ' - LogLikelihood.txt')
                 self._out_file_llh = open(filename,'a')
+                iteration = '.'.join(
+                    [str(model.MultiLayer[ml].get_iteration())
+                        for ml in xrange(nmultilayer+1)]
+                    )
                 self._out_file_llh.write(
-                    '%d\t%.10f\n' % (
-                        model.MultiLayer[nmultilayer].get_iteration(),
+                    '%s\t%.10f\n' % (
+                        iteration,
                         loglikelihood))
                 self._out_file_llh.close()
+        return loglikelihood

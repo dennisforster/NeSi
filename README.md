@@ -4,10 +4,10 @@
 
 ## 1. Prerequisites
 - Python 2.7.x
-- 'numpy' and 'scipy' in their latest versions, both available at [http://www.scipy.org/](http://www.scipy.org/)
-- 'matplotlib' in its latest version for graphical outputs, available at [http://matplotlib.org/](http://matplotlib.org/)
-- 'mpi4py' in its latest version
-- theano 0.7, availabe at [http://deeplearning.net/software/theano/](http://deeplearning.net/software/theano/)
+- 'numpy' and 'scipy', both available at [http://www.scipy.org/](http://www.scipy.org/)
+- 'matplotlib' for graphical outputs, available at [http://matplotlib.org/](http://matplotlib.org/)
+- 'mpi4py' 
+- 'theano', availabe at [http://deeplearning.net/software/theano/](http://deeplearning.net/software/theano/)
 
 Before running the algorithm, the data sets have to be downloaded and put into the /data-sets/ folder:
 
@@ -55,13 +55,14 @@ THEANO_FLAGS='device=gpu' python main.py [config_name]
 `
 
 To reproduce the experiments of the paper `[config_name]` has the form `[dataset]/[algorithm]-L[#Labels]`, with
-
+    
     [dataset]: 'MNIST' or '20\ Newsgroups'
-    [algorithm]: 'r-NeSi' or 'ff-NeSi'
-    [#Labels]: 10,100,600,1000,3000,60000 for MNIST or 20,200,800,2000,7505 for 20 Newsgroups
-  e.g. to run the r-NeSi algorithm on MNIST with 100 labels on a GPU execute
+    [algorithm]: 'r-NeSi', 'r+-NeSi', 'ff-NeSi' or 'ff+-NeSi'
+    [#Labels]: 10,100,600,1000,3000,60000 for MNIST or 20,40,200,800,2000,11269 for 20 Newsgroups
+    
+  e.g. to run the r+-NeSi algorithm on MNIST with 100 labels on a GPU execute
 
-  `THEANO_FLAGS='device=gpu' python main.py MNIST/r-NeSi-L100`
+  `THEANO_FLAGS='device=gpu' python main.py MNIST/r+-NeSi-L100`
 
   e.g. to run the ff-NeSi algorithm on 20 Newsgroups with 800 labels on a GPU execute
 

@@ -20,8 +20,8 @@ class MixtureModel(LayerModel_Theano_Scan):
     def __init__(self, nmultilayer, nlayer, input_source):
         self.W_t = T.matrix("W_%d.%d"%(nmultilayer,nlayer), dtype='float32')
         self.s_t = T.matrix("s_%d.%d"%(nmultilayer,nlayer), dtype='float32')
-        self.epsilon_t = T.scalar("epsilon_%d.%d"%(nmultilayer,nlayer),
-                                  dtype='float32')
+        self.parameters_t = [
+            T.scalar("epsilon_%d.%d"%(nmultilayer,nlayer), dtype='float32'),]        
         self._nmultilayer = nmultilayer
         self._nlayer = nlayer
         self._input_source = input_source
@@ -53,7 +53,7 @@ class MixtureModel(LayerModel_Theano_Scan):
     @doc_inherit
     def non_sequences(self, mode='train'):
         if (mode == 'train'):
-            non_sequences = [self.epsilon_t]
+            non_sequences = self.parameters_t
         elif (mode == 'test'):
             non_sequences = [self.W_t]
         elif (mode == 'likelihood'):

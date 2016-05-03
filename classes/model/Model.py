@@ -28,6 +28,7 @@ class Model(object):
         self._run = 0
         self._theanoscan = False
         self._t_sum_log_likelihood = None
+        self._t_sum_log_likelihood_W = None
 
 
     #=== Properties ===========================================================
@@ -130,12 +131,19 @@ class Model(object):
                     Y[i,:] = self.output(dataset.get_train_data()[i],
                                          int(InputSource[0][10])-1)
             else:
-                # TODO: This is a hotfix, that only works for the greedy-DPM.
-                # Implement an theano output-function for the MultiLayer class!
+                # TODO: Implement Scan-Splitting for big data sets
                 inputdata = []
                 weights = {}
                 activations = {}
                 ml = self.MultiLayer[int(InputSource[0][10])-1]
+                if ml._scan_batch_size is None:
+                    nbatches = 1
+                    scan_batch_size = dataset.get_train_data().shape[0]
+                else:
+                    nbatches = int(np.ceil(
+                        dataset.get_train_data().shape[0]
+                        /float(ml._scan_batch_size)))
+                    scan_batch_size = ml._scan_batch_size
                 for layer in ml.Layer:
                     if layer.__class__.__name__ == 'InputLayer':
                         data = dataset.get_train_data()
@@ -156,15 +164,22 @@ class Model(object):
                             dtype='float32')
                 # TODO: reconstruct this from layers as in Train
                 # (done for outputs_info and non_sequences):
-                sequences = [inputdata[0]]
-                outputs_info = [activations[item.name]
-                    for layer in ml.Layer
-                    for item in layer.outputs_info(mode='test')]
-                non_sequences = [weights[item.name]
-                    for layer in ml.Layer
-                    for item in layer.non_sequences(mode='test')]
-                args = sequences + outputs_info + non_sequences
-                Y = ml._activation_scan(*args)[0]
+                Y = np.empty(shape=(dataset.get_train_data().shape[0],
+                             config['model'][InputSource[0]][InputSource[1]]['C']),
+                             dtype='float32')
+                for nbatch in xrange(nbatches):
+                    sequences = [inputdata[0][:,nbatch*scan_batch_size:\
+                                              (nbatch+1)*scan_batch_size,:]]
+                    outputs_info = [activations[item.name]\
+                            [nbatch*scan_batch_size:(nbatch+1)*scan_batch_size,:]
+                        for layer in ml.Layer
+                        for item in layer.outputs_info(mode='test')]
+                    non_sequences = [weights[item.name]
+                        for layer in ml.Layer
+                        for item in layer.non_sequences(mode='test')]
+                    args = sequences + outputs_info + non_sequences
+                    Y[nbatch*scan_batch_size:(nbatch+1)*scan_batch_size] = \
+                        ml._activation_scan(*args)[0]
             Label = dataset.get_train_label()
 
         self.MultiLayer[nmultilayer].set_iterations(
@@ -285,14 +300,20 @@ class Model(object):
                 except:
                     A = None
 
+                try:
+                    threshold = config['model']['MultiLayer'+str(nmultilayer+1)]\
+                        ['ProcessingLayer'+str(plcount)]['threshold']
+                except:
+                    threshold = None
+
                 h5path = None
                 h5file = None
                 try:
-                    method = config['model']['MultiLayer'+str(nmultilayer+1)]\
+                    InitMethod = config['model']['MultiLayer'+str(nmultilayer+1)]\
                         ['ProcessingLayer'+str(plcount)]['Initialization']
-                    if isinstance(method, tuple):
-                        method = method[0]
-                        if (method == 'h5'):
+                    if isinstance(InitMethod, tuple):
+                        InitMethod = InitMethod[0]
+                        if (InitMethod == 'h5'):
                             h5path = config['model']\
                                 ['MultiLayer'+str(nmultilayer+1)]\
                                 ['ProcessingLayer'+str(plcount)]\
@@ -312,7 +333,7 @@ class Model(object):
                                 h5file = "Run%dM%dL%d.h5"%(
                                     self._run+1,nmultilayer+1,nlayer)
                 except:
-                    method = None
+                    InitMethod = None
 
                 try:
                     Theano = config['config']['Theano']
@@ -323,9 +344,16 @@ class Model(object):
                     Scan = config['config']['Scan']
                 except:
                     Scan = False
+
+                Parameters = {
+                    'C':C,
+                    'A':A,
+                    'epsilon':epsilon,
+                    'threshold':threshold
+                    }
                 self.MultiLayer[nmultilayer].initialize_processinglayer(
-                    A,C,epsilon,mini_batch_size,Model,InputSource,nlayer,Theano,
-                    Scan,D,Y,L,method,h5path,h5file
+                    Model,Parameters,InputSource,nlayer,Theano,
+                    Scan,D,Y,L,InitMethod,h5path,h5file
                     )
 
                 if (np.ceil(float(config['dataset']['training_data_size'])/\
@@ -343,19 +371,16 @@ class Model(object):
 
         pprint('%d.%d.2.1 - Visualize Weights' % (
             self._run+1, nmultilayer+1), end='')
-        try:
-            output.visualize_all_weights(self,nmultilayer,config)
-        except:
-            pass
+        output.visualize_all_weights(self,nmultilayer,config)
         pprint(' (%0.2f MB)' % mem_usage())
 
-        if (len(self.MultiLayer) == 1):
+        # if (len(self.MultiLayer) == 1):
             # TODO: for greedy model: output Likelihood of up to the
             #       current MultiLayer
-            pprint('%d.%d.2.2 - LogLikelihood' % (
-                self._run+1, nmultilayer+1), end='')
-            output.write_loglikelihood(self, nmultilayer)
-            pprint(' (%0.2f MB)' % mem_usage())
+        pprint('%d.%d.2.2 - LogLikelihood' % (
+            self._run+1, nmultilayer+1), end='')
+        output.write_loglikelihood(self, nmultilayer)
+        pprint(' (%0.2f MB)' % mem_usage())
 
         # variables for stopping criterion
         # TODO: generalize for all MultiLayers
@@ -403,6 +428,13 @@ class Model(object):
             #     ml.Layer[1]._epsilon *= 0.98
             # MPI.COMM_WORLD.Barrier()
 
+            # to save learned weights every iteration
+            # output.save_weights(self.MultiLayer[nmultilayer])
+
+            # to save posterior distribution of training data every iteration
+            # if nmultilayer == self.number_of_multilayers()-1:
+            #     output.save_posterior(self, config, dataset)
+
             # Stopping criterion
             if (len(self.MultiLayer) == 1):
                 # TODO: for greedy model: output Likelihood of up to the
@@ -418,12 +450,6 @@ class Model(object):
                         loglikelihood = loglikelihood[1:]
                     pprint(' | Log-Likelihood: %f (%f s)'%(
                         loglikelihood[-1], time.time()-t0), end='')
-                output.write_loglikelihood(self, nmultilayer, loglikelihood[-1])
-                # pprint(' - Memory usage: %s (Mb)' % mem_usage())
-
-                # pprint('2.2.3.7 - Test Error', end='')
-                output.write_online_results(self, config, dataset, loglikelihood[-1])
-                # pprint(' - Memory usage: %s (Mb)' % mem_usage())
 
                 if STOPPING_CRITERION:
                     # save only the last #mvngwidht/2-1 weights
@@ -469,18 +495,23 @@ class Model(object):
                     except:
                         pass
 
-            # pprint('2.2.3.3 - Visualize Weights', end='')
-            try:
-                output.visualize_all_weights(self,nmultilayer,config)
-            except:
-                pass
+            this_loglikelihood = output.write_loglikelihood(self, nmultilayer, loglikelihood[-1])
             # pprint(' - Memory usage: %s (Mb)' % mem_usage())
 
-            # pprint('2.2.3.4 - Convergence 2', end='')
+            if (len(self.MultiLayer) == 1):
+                # pprint('2.2.3.7 - Test Error', end='')
+                output.write_online_results(self, config, dataset, this_loglikelihood)
+                # pprint(' - Memory usage: %s (Mb)' % mem_usage())
+
+            # pprint('2.2.3.4 - Visualize Weights', end='')
+            output.visualize_all_weights(self,nmultilayer,config)
+            # pprint(' - Memory usage: %s (Mb)' % mem_usage())
+
+            # pprint('2.2.3.5 - Convergence 2', end='')
             output.conv_post(self.MultiLayer[nmultilayer])
             # pprint(' - Memory usage: %s (Mb)' % mem_usage())
 
-            # pprint('2.2.3.5 - Visualize Convergence', end='')
+            # pprint('2.2.3.6 - Visualize Convergence', end='')
             output.visualize_convergence(self,nmultilayer)
             # pprint(' - Memory usage: %s (Mb)' % mem_usage())
             if STOP:
@@ -500,9 +531,10 @@ class Model(object):
                 #     np.sum(self.MultiLayer[0].output(testdata[i],1)*\
                 #            self.MultiLayer[0].Layer[2].get_weights(),1)
                 #     )
-                classification = np.argmax(
-                    self.output(testdata[i],self.number_of_multilayers()-1)
-                    )
+                activation = self.output(
+                    testdata[i],
+                    self.number_of_multilayers()-1)
+                classification = np.argmax(activation)
                 if (classification == testlabel[i]):
                     ncorrect += 1.
             sumcorrect = np.zeros_like(ncorrect)
@@ -588,35 +620,53 @@ class Model(object):
                                 axis=-2)
             # TODO: figure out why the greedy model has activation shape (N,D),
             # and the ff shape (1,N,D)
-            classification = np.argmax(activation[-1][-1], axis=-1).flatten()
+            activation = activation[-1][-1]
+            classification = np.argmax(activation, axis=-1).flatten()
             test_error = (1.-np.sum(classification == testlabel)\
                 /float(classification.shape[0]))*100.
-        return test_error
+        return test_error, activation
 
-    def loglikelihood(self, mode='unsupervised'):
+    def loglikelihood(self, data=None, mode='unsupervised'):
         """
-        Calculate the log-likelihood of the input data under the model
+        Calculate the log-likelihood of the given data under the model
         parameters.
 
         Keyword arguments:
+        data: nparray (data,label) or 'None' for input data
         mode=['unsupervised','supervised']: calculate supervised or
               unsupervised loglikelihood
         """
         # To avoid numerical problems the log-likelihood has to be
         # calculated in such a more costly way by using intermediate
         # logarithmic functions
-        Y = self.MultiLayer[0].Layer[0].get_input_data().astype('float32')
+
+        # input data
+        if data is None:
+            Y = self.MultiLayer[0].Layer[0].get_input_data().astype('float32')
+        else:
+            Y = np.asarray(
+                [self.MultiLayer[0].Layer[0].output(y) for y in data[0]],
+                dtype='float32')
+
+        # labels
         if (mode == 'supervised'):
-            L = self.MultiLayer[0].Layer[0].get_input_label()
+            if data is None:
+                L = self.MultiLayer[0].Layer[0].get_input_label()
+            else:
+                L = data[1]
         elif (mode == 'unsupervised'):
             L = (-1)*np.ones(Y.shape[0])
+        
+        # weights & dimensions
         W = self.MultiLayer[0].Layer[1].get_weights().astype('float32')
         N = Y.shape[0]
         C = W.shape[0]
         D = W.shape[1]
-
         if (self.number_of_multilayers() == 2):
-            M = self.MultiLayer[1].Layer[1].get_weights()
+            try:
+                M = self.MultiLayer[1].Layer[1].get_weights()
+            except:
+                M = None
         elif ((self.number_of_multilayers() == 1) and
               (self.MultiLayer[0].number_of_layers() == 3)):
             M = self.MultiLayer[0].Layer[2].get_weights()
@@ -630,12 +680,12 @@ class Model(object):
         if not self._theano:
             if M is None:
                 ones = np.ones(shape=(C,D), dtype=float)
-                log_likelihood = 0.
+                log_likelihood = np.empty(N, dtype=float)
                 for ninput in xrange(N):
                     sum_log_poisson = np.sum(
                         log_poisson_function(ones*Y[ninput,:], W), axis=1)
                     a = np.max(sum_log_poisson)
-                    log_likelihood += -np.log(C) + a + \
+                    log_likelihood[ninput] = -np.log(C) + a + \
                         np.log(np.sum(np.exp(sum_log_poisson - a)))
             else:
                 ones = np.ones(shape=(C,D), dtype=float)
@@ -658,8 +708,39 @@ class Model(object):
         else:
             import theano
             import theano.tensor as T
+            ml = self.MultiLayer[0]
+            if ml._scan_batch_size is None:
+                nbatches = 1
+                scan_batch_size = ml.Layer[0].get_input_data().shape[0]
+            else:
+                nbatches = int(np.ceil(
+                    ml.Layer[0].get_input_data().shape[0]
+                    /float(ml._scan_batch_size)))
+                scan_batch_size = ml._scan_batch_size
+            batch_log_likelihood = np.zeros(nbatches, dtype='float32')
             if M is None:
-                sum_log_likelihood = 0. # TODO
+                if (self._t_sum_log_likelihood_W is None):
+                    Y_t = T.matrix('Y', dtype='float32')
+                    L_t = T.vector('L', dtype='int32')
+                    W_t = T.matrix('W', dtype='float32')
+                    sum_log_poisson = T.tensordot(Y_t,T.log(W_t), axes=[1,1]) \
+                        - T.sum(W_t, axis=1) \
+                        - T.sum(T.gammaln(Y_t+1), axis=1, keepdims=True)
+                    a = T.max(sum_log_poisson, axis=1, keepdims=True)
+                    logarg = T.sum(T.exp(sum_log_poisson-a), axis=1)
+                    log_likelihood = -T.log(C) + a[:,0] + T.log(logarg)
+                    # Compile theano function
+                    self._t_sum_log_likelihood_W = theano.function(
+                        [Y_t,L_t,W_t],
+                        T.sum(log_likelihood),
+                        on_unused_input='ignore')
+                for nbatch in xrange(nbatches):
+                    batch_log_likelihood[nbatch] = self._t_sum_log_likelihood_W(
+                        Y[nbatch*scan_batch_size:
+                            (nbatch+1)*scan_batch_size].astype('float32'),
+                        L[nbatch*scan_batch_size:
+                            (nbatch+1)*scan_batch_size].astype('int32'),
+                        W.astype('float32'))
             else:
                 if (self._t_sum_log_likelihood is None):
                     Y_t = T.matrix('Y', dtype='float32')
@@ -679,13 +760,18 @@ class Model(object):
                         T.cast(T.min(sum_log_poisson), dtype = 'int32'),
                         T.cast(sum_log_poisson, dtype = 'int32'))
                     a = T.max(a, axis=1, keepdims=True)
+                    # logarg = T.switch(
+                    #     T.eq(M_nlc, 0.),
+                    #     0.,
+                    #     T.exp(sum_log_poisson-a).astype('float32')*M_nlc\
+                    #         /M_t.shape[0].astype('float32'))
                     logarg = T.switch(
                         T.eq(M_nlc, 0.),
                         0.,
-                        T.exp(sum_log_poisson-a)*M_nlc\
-                            /T.cast(M_t.shape[0], dtype='float32'))
+                        T.exp(sum_log_poisson-a.astype('float32'))
+                    )
                     logarg = T.sum(logarg, axis=1)
-                    log_likelihood = a[:,0] + T.log(logarg)
+                    log_likelihood = a[:,0].astype('float32') + T.log(logarg)
                     # Compile theano function
                     self._t_sum_log_likelihood = theano.function(
                         [Y_t,L_t,W_t,M_t],
@@ -709,16 +795,6 @@ class Model(object):
                         outputs=result,
                         name='loglikelihood')
                     """
-                ml = self.MultiLayer[0]
-                if ml._scan_batch_size is None:
-                    nbatches = 1
-                    scan_batch_size = ml.Layer[0].get_input_data().shape[0]
-                else:
-                    nbatches = int(np.ceil(
-                        ml.Layer[0].get_input_data().shape[0]
-                        /float(ml._scan_batch_size)))
-                    scan_batch_size = ml._scan_batch_size
-                batch_log_likelihood = np.empty(nbatches, dtype='float32')
                 for nbatch in xrange(nbatches):
                     batch_log_likelihood[nbatch] = self._t_sum_log_likelihood(
                         Y[nbatch*scan_batch_size:

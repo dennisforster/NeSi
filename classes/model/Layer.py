@@ -216,19 +216,13 @@ class ProcessingLayer(object):
             input_data/inputsum + offset
         return input_data
 
-    def normalize_inputs(self, input_ddata, normalization=None, offset=1.):
+    def normalize_inputs(self, input_data, normalization=None, offset=1.):
         if (normalization is None):
             normalization = self.A
-        inputsum = np.sum(input_ddata,1)
-        input_ddata = (normalization-input_ddata.shape[1])*\
-            input_ddata/inputsum[:,np.newaxis] + offset
-        return input_ddata
-
-    def set_learningrate(self, epsilon):
-        self._layermodel.epsilon = epsilon
-
-    def get_learningrate(self):
-        return self._layermodel.epsilon
+        inputsum = np.sum(input_data,1)
+        input_data = (normalization-input_data.shape[1])*\
+            input_data/inputsum[:,np.newaxis] + offset
+        return input_data
 
     def set_weights(self, W):
         self._layermodel.set_weights(W)
@@ -254,9 +248,6 @@ class ProcessingLayer(object):
             elif (model == 'MM-LabeledOnly'):
                 self._layermodel = layermodels.mixturemodel.MixtureModel(
                     useunlabeled=False)
-            elif (model == 'MM'):
-                self._layermodel = layermodels.mixturemodel.MixtureModel(
-                    useunlabeled=True)
         # Using Theano Functions (necessary for GPU computation):
         elif model_args['Theano']:
             if not model_args['Scan']:
@@ -272,9 +263,9 @@ class ProcessingLayer(object):
                         layermodels.mixturemodel_theano.MixtureModel(
                             C=model_args['C'], D=model_args['D'],
                             use_unlabeled=False)
-                elif (model == 'MM'):
+                elif (model == 'MM-SSL'):
                     self._layermodel = \
-                        layermodels.mixturemodel_theano.MixtureModel(
+                        layermodels.mixturemodel_ssl_theano.MixtureModel(
                             C=model_args['C'], D=model_args['D'],
                             use_unlabeled=True)
             elif model_args['Scan']:
@@ -308,8 +299,14 @@ class ProcessingLayer(object):
                     self._layermodel = layermodels.mixturemodel_theano_scan.\
                         MixtureModel(
                             self._level[0], self._level[1], inputsource)
-                elif (model == 'MM'):
-                    print 'ERROR: MM Model not supported for theano.scan'
+                elif (model == 'MM-SSL'):
+                    self._layermodel = layermodels.mixturemodel_ssl_theano_scan.\
+                        MixtureModel(
+                            self._level[0], self._level[1], inputsource)
+                elif (model == 'MM-USL'):
+                    self._layermodel = layermodels.mixturemodel_usl_theano_scan.\
+                        MixtureModel(
+                            self._level[0], self._level[1], inputsource)
 
     def sequences(self, mode='train'):
         """
@@ -334,7 +331,7 @@ class ProcessingLayer(object):
         """
         return self._layermodel.non_sequences(mode)
 
-    def initialize_weights(self, Y=None, L=None, method=None, h5path=None, h5file=None):
+    def initialize_weights(self, Y=None, L=None, method=None, h5path=None, h5filename=None):
         W = np.zeros(shape=((self.C,)+self.D), dtype='float32')
         if (self._comm.Get_rank() == 0):
             if (method is None):
@@ -407,7 +404,7 @@ class ProcessingLayer(object):
             elif (method == 'h5'):
                 # initialize weights by using a h5 file, e.g., to resume a
                 # previous computation
-                h5file = h5py.File("%s/%s"%(h5path,h5file), 'r')
+                h5file = h5py.File("%s/%s"%(h5path,h5filename), 'r')
                 if (len(h5file['W'].shape) == 2):
                     W = h5file['W'][:,:]
                 elif (len(h5file['W'].shape) == 3):
@@ -422,7 +419,7 @@ class ProcessingLayer(object):
         # general not necessary)
         if(self.A is not None):
             input_data = self.normalize_input(input_data)
-        self._layermodel.feed(self, multilayer, input_data, input_label,
+        s = self._layermodel.feed(self, multilayer, input_data, input_label,
                               mode='train')
         self._mini_batch_count += 1
         if (self._mini_batch_count == self.mini_batch_size):

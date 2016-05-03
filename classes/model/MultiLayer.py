@@ -63,19 +63,19 @@ class MultiLayer(object):
             del newLayer
 
     def initialize_processinglayer(
-        self, A, C, epsilon, mini_batch_size, model, inputsource,
-        nlayer=1, Theano=False, Scan=False, D=None, Y=None, L=None, method=None,
-        h5path=None, h5file=None):
+        self, model, parameters, inputsource,
+        nlayer=1, Theano=False, Scan=False, D=None, Y=None, L=None,
+        method=None, h5path=None, h5file=None):
         if (self.Layer[nlayer].__class__.__name__ == 'ProcessingLayer'):
-            self.Layer[nlayer].A = A
-            self.Layer[nlayer].C = C
-            self.Layer[nlayer].D = D
-            self.Layer[nlayer].mini_batch_size = mini_batch_size
+            self.Layer[nlayer].parameters = parameters
             # inputsource must be set before Model when using theano.scan
             self.Layer[nlayer].set_inputsource(inputsource)
-            self.Layer[nlayer].set_model(
-                model, model_args={'C':C, 'D':D[0], 'Theano':Theano, 'Scan':Scan})
-            self.Layer[nlayer].set_learningrate(epsilon)
+            self.Layer[nlayer].C = parameters['C']
+            self.Layer[nlayer].A = parameters['A']
+            self.Layer[nlayer].D = D
+            model_args = parameters
+            model_args.update({'D':D[0], 'Theano':Theano, 'Scan':Scan})
+            self.Layer[nlayer].set_model(model, model_args)
             self.Layer[nlayer].initialize_weights(Y, L, method, h5path, h5file)
 
     def compile_theano_functions(self):
@@ -258,8 +258,14 @@ class MultiLayer(object):
                         weights[layer._layermodel.W_t.name] = \
                             layer.get_weights().astype('float32')
                         # TODO: generalize parameters in Layer
-                        parameters[layer._layermodel.epsilon_t.name] = \
-                            np.asarray(layer.get_learningrate(), dtype='float32')
+                        parameters.update(dict(zip(
+                            [item.name
+                                for item in layer._layermodel.parameters_t],
+                            [layer.parameters[item.name.rpartition('_')[0]]
+                                for item in layer._layermodel.parameters_t]
+                            )))
+                        # parameters[layer._layermodel.epsilon_t.name] = \
+                        #     np.asarray(layer.get_learningrate(), dtype='float32')
                 sequences = [inputs[item.name]
                     for layer in self.Layer
                     for item in layer.sequences(mode='train')]

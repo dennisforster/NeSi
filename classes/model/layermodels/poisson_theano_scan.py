@@ -20,8 +20,8 @@ class Poisson(LayerModel_Theano_Scan):
         self.W_t = T.matrix("W_%d.%d"%(nmultilayer,nlayer), dtype='float32')
         self.s_t = T.matrix("s_%d.%d"%(nmultilayer,nlayer), dtype='float32')
         self._s = None
-        self.epsilon_t = T.scalar("epsilon_%d.%d"%(nmultilayer,nlayer),
-                                  dtype='float32')
+        self.parameters_t = [
+            T.scalar("epsilon_%d.%d"%(nmultilayer,nlayer), dtype='float32')]
         self._nmultilayer = nmultilayer
         self._nlayer = nlayer
         self._input_source = input_source
@@ -53,7 +53,7 @@ class Poisson(LayerModel_Theano_Scan):
     @doc_inherit
     def non_sequences(self, mode='train'):
         if (mode == 'train'):
-            non_sequences = [self.epsilon_t]
+            non_sequences = self.parameters_t
         elif (mode == 'test'):
             non_sequences = [self.W_t]
         elif (mode == 'likelihood'):
@@ -141,7 +141,7 @@ class Poisson(LayerModel_Theano_Scan):
         # scaling factor in the softmax function is used, utilizing the
         # identity:
         # exp(x_i)/sum_i(exp(x_i)) = exp(x_i-a)/sum_i(exp(x_i-a))
-        max_exponent = 86. - T.log(I.shape[1]).astype('float32')
+        max_exponent = 86. - T.log(I.shape[1].astype('float32'))
         scale = T.switch(
             T.gt(T.max(I, axis=1, keepdims=True), max_exponent),
             T.max(I, axis=1, keepdims=True) - max_exponent,
@@ -157,8 +157,8 @@ class Poisson_Recurrent(LayerModel_Theano_Scan):
         self.W = None
         self.W_t = T.matrix("W_%d.%d"%(nmultilayer,nlayer), dtype='float32')
         self.s_t = T.matrix("s_%d.%d"%(nmultilayer,nlayer), dtype='float32')
-        self.epsilon_t = T.scalar("epsilon_%d.%d"%(nmultilayer,nlayer),
-                                  dtype='float32')
+        self.parameters_t = [
+            T.scalar("epsilon_%d.%d"%(nmultilayer,nlayer),dtype='float32')]
         self._nmultilayer = nmultilayer
         self._nlayer = nlayer
         self._input_source = input_source
@@ -166,6 +166,7 @@ class Poisson_Recurrent(LayerModel_Theano_Scan):
         # this layer the multilayer and the Layer of its source:
         # _input_source[i][0]: MultiLayer of variable i
         # _input_source[i][1]: Layer of variable i
+        # self._srng = T.shared_randomstreams.RandomStreams(seed=137)
 
     @doc_inherit
     def sequences(self, mode='train'):
@@ -190,7 +191,7 @@ class Poisson_Recurrent(LayerModel_Theano_Scan):
     @doc_inherit
     def non_sequences(self, mode='train'):
         if (mode == 'train'):
-            non_sequences = [self.epsilon_t]
+            non_sequences = self.parameters_t
         elif (mode == 'test'):
             non_sequences = [self.W_t]
         elif (mode == 'likelihood'):
@@ -284,19 +285,21 @@ class Poisson_Recurrent(LayerModel_Theano_Scan):
         """
         # Input integration:
         I = T.tensordot(Y,T.log(W),axes=[1,1])
+        # dropout (does not work with scan)
+        # I = T.cast(self._srng.binomial((I.shape[0],I.shape[1])),'float32')
         # recurrent term:
         vM = M[L]
         L_index = T.eq(L,-1).nonzero()
         vM = T.set_subtensor(vM[L_index], T.sum(M, axis=0))
         # numeric trick to prevent overflow in the exp-function
-        max_exponent = 86. - T.ceil(T.log(I.shape[1]).astype('float32'))
+        max_exponent = 86. - T.ceil(T.log(I.shape[1].astype('float32')))
         scale = T.switch(
             T.gt(T.max(I, axis=1, keepdims=True), max_exponent),
             T.max(I, axis=1, keepdims=True) - max_exponent,
             0.)
         # numeric approximation to prevent underflow in the exp-function:
         # map too low values of I to a fixed minimum value
-        min_exponent = -87. + T.ceil(T.log(I.shape[1]).astype('float32'))
+        min_exponent = -87. + T.ceil(T.log(I.shape[1].astype('float32')))
         I = T.switch(
             T.lt(I-scale, min_exponent),
             scale+min_exponent,
@@ -304,3 +307,151 @@ class Poisson_Recurrent(LayerModel_Theano_Scan):
         # activation: recurrent softmax with overflow protection
         s = vM*T.exp(I-scale)/T.sum(vM*T.exp(I-scale), axis=1, keepdims=True)
         return s
+
+#------------------------------------------------------------------------------
+class Poisson_Recurrent_IF(LayerModel_Theano_Scan):
+    """Recurrent Mixture of Poisson layer for theano.scan calculation"""
+
+    def __init__(self, nmultilayer, nlayer, input_source):
+        self.W = None
+        self.W_t = T.matrix("W_%d.%d"%(nmultilayer,nlayer), dtype='float32')
+        self.s_t = T.matrix("s_%d.%d"%(nmultilayer,nlayer), dtype='float32')
+        self.parameters_t = [
+            T.scalar("epsilon_%d.%d"%(nmultilayer,nlayer),dtype='float32')]
+        self._nmultilayer = nmultilayer
+        self._nlayer = nlayer
+        self._input_source = input_source
+        # _input_source gives for each input variable which is not from
+        # this layer the multilayer and the Layer of its source:
+        # _input_source[i][0]: MultiLayer of variable i
+        # _input_source[i][1]: Layer of variable i
+        # self._srng = T.shared_randomstreams.RandomStreams(seed=137)
+
+    @doc_inherit
+    def sequences(self, mode='train'):
+        if (mode == 'train'):
+            sequences = []
+        elif (mode == 'test'):
+            sequences = []
+        elif (mode == 'likelihood'):
+            sequences = []
+        return sequences
+
+    @doc_inherit
+    def outputs_info(self, mode='train'):
+        if (mode == 'train'):
+            outputs_info = [self.W_t]
+        elif (mode == 'test'):
+            outputs_info = [self.s_t]
+        elif (mode == 'likelihood'):
+            outputs_info = []
+        return outputs_info
+
+    @doc_inherit
+    def non_sequences(self, mode='train'):
+        if (mode == 'train'):
+            non_sequences = self.parameters_t
+        elif (mode == 'test'):
+            non_sequences = [self.W_t]
+        elif (mode == 'likelihood'):
+            non_sequences = [self.W_t]
+        return non_sequences
+
+    @doc_inherit
+    def input_parameters(self, mode='train'):
+        if (mode == 'train'):
+            parameters = [
+                's_%d.%d[t]'%(self._input_source[0][0], self._input_source[0][1]),
+                'L[t]',
+                'W_%d.%d[t-1]'%(self._input_source[1][0], self._input_source[1][1]),
+                'W_%d.%d[t-1]'%(self._nmultilayer, self._nlayer),
+                'epsilon_%d.%d'%(self._nmultilayer, self._nlayer),
+                'threshold_%d.%d'%(self._nmultilayer, self._nlayer+1)
+                ]
+        elif (mode == 'test'):
+            parameters = [
+                's_%d.%d[t]'%(self._input_source[0][0], self._input_source[0][1]),
+                'W_%d.%d'%(self._input_source[1][0], self._input_source[1][1]),
+                'W_%d.%d'%(self._nmultilayer, self._nlayer)
+                ]
+        return parameters
+
+    @doc_inherit
+    def learningstep(self, Y, L, M, W, epsilon, threshold):
+        s = self._activation(Y,L,M,W)
+        L_inf = T.switch(
+            T.eq(L,-1), # if no label is provided
+            self._inferred_labels(s,M,threshold),
+            -1
+            )
+        s = self._activation(Y,L_inf,M,W)
+        s.name = 's_%d.%d[t]'%(self._nmultilayer,self._nlayer)
+        # weight update
+        W_new = W + epsilon*(T.tensordot(s,Y,axes=[0,0]) -
+                             T.sum(s,axis=0)[:,np.newaxis]*W)
+        W_new.name = 'W_%d.%d[t]'%(self._nmultilayer,self._nlayer)
+        return s, W_new
+
+    @doc_inherit
+    def teststep(self, Y, M, W):
+        # activation
+        L = (-1)*T.ones_like(Y[:,0], dtype='int32')
+        s = self._activation(Y,L,M,W)
+        s.name = 's_%d.%d[t]'%(self._nmultilayer,self._nlayer)
+        return s
+
+    @doc_inherit
+    def set_weights(self, W):
+        self.W = W
+
+    @doc_inherit
+    def get_weights(self):
+        return self.W
+
+    def _activation(self, Y, L, M, W):
+        """Returns the activation for a given input.
+
+        Derived from the generative model formulation of hierarchical
+        Poisson mixtures, the formular for the activation in the network
+        reads as follows:
+        I_c =
+         \sum_d \log(W_{cd})y_d + \log(M_{lc})        for labeled data
+         \sum_d \log(W_{cd})y_d + \log(\sum_k M_{kc}) for unlabeled data
+        s_c = softmax(I_c)
+        """
+        # first: complete inference to find label
+        # Input integration:
+        I = T.tensordot(Y,T.log(W),axes=[1,1])
+        # recurrent term:
+        vM = M[L]
+        L_index = T.eq(L,-1).nonzero()
+        vM = T.set_subtensor(vM[L_index], T.sum(M, axis=0))
+        # numeric trick to prevent overflow in the exp-function
+        max_exponent = 86. - T.ceil(T.log(I.shape[1].astype('float32')))
+        scale = T.switch(
+            T.gt(T.max(I, axis=1, keepdims=True), max_exponent),
+            T.max(I, axis=1, keepdims=True) - max_exponent,
+            0.)
+        # numeric approximation to prevent underflow in the exp-function:
+        # map too low values of I to a fixed minimum value
+        min_exponent = -87. + T.ceil(T.log(I.shape[1].astype('float32')))
+        I = T.switch(
+            T.lt(I-scale, min_exponent),
+            scale+min_exponent,
+            I)
+        # activation: recurrent softmax with overflow protection
+        s = vM*T.exp(I-scale)/T.sum(vM*T.exp(I-scale), axis=1, keepdims=True)
+        return s
+
+    def _inferred_labels(self, s, M, threshold):
+        inference = T.tensordot(
+                s,
+                T.switch(T.eq(M,0), 0, M/T.sum(M, axis=0)),
+                axes=[1,1])
+        BvSB = T.sort(inference,axis=1)[:,-1]-T.sort(inference,axis=1)[:,-2]
+        L_inf = T.switch(
+            T.gt(BvSB,threshold),
+            T.cast(T.argmax(inference,axis=1),'int32'),
+            -1
+            )
+        return L_inf

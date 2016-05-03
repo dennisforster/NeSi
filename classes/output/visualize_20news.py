@@ -88,6 +88,7 @@ def visualize_all_weights(output, model, nmultilayer, config, first=0, last=20, 
                 label_names.append(line[0:-1]) # omits the '\n' at the end of each line
             label_names = np.asarray(label_names)
 
+        # ymax = np.power(2,np.ceil(np.log2(np.max(all_img_2D[0][first:last,:]))))
         for nimage in xrange(first,last):
             for nlayer in xrange(1,NLAYERS):
                 if (nlayer == 1):
@@ -103,6 +104,7 @@ def visualize_all_weights(output, model, nmultilayer, config, first=0, last=20, 
                     xtickNames = ax.set_xticklabels(xTickMarks)
                     plt.setp(xtickNames, rotation=90, fontsize=16)
                     ax.set_yticks([])
+                    # plt.ylim([0, ymax])
                     figure_title = label_names[np.argmax(all_img_2D[nlayer][:,nimage])] \
                         + '\np(k|c) = ' + str(np.round(np.max(all_img_2D[nlayer][:,nimage])/np.sum(all_img_2D[nlayer][:,nimage])*100.)) + '%'\
                         + '\np(c|k) = ' + str(np.round(np.max(all_img_2D[nlayer][:,nimage])*100.)) + '%'

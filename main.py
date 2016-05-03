@@ -147,11 +147,12 @@ for nrun in xrange(config.get(0)['config']['Runs']):
             dataset.distribute_set(comm,'test')
             dataset.load_set('test')
             output.save_data_index(nrun+1, dataset, 'test')
-        test_error = NN.test(dataset.get_test_data(),dataset.get_test_label())
+        test_error, _ = NN.test(dataset.get_test_data(),dataset.get_test_label())
+        # test_likelihood = NN.loglikelihood((dataset.get_test_data(),dataset.get_test_label()))
         dataset.delete_set('test')
         comm.Barrier()
         pprint('Test Error [%%]: %f' % test_error)
-        output.write_results(test_error, loglikelihood, config, nrun)
+        output.write_results(test_error, loglikelihood, config, nrun)# , test_likelihood
     comm.Barrier()
 
 comm.Barrier()
